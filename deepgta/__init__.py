@@ -20,6 +20,7 @@ from .refinement import GTALinkRefiner, Tracklet
 from .reid import ReIDExtractor
 from .utils import VideoReader, VideoWriter, Visualizer
 from .test_detection import test_detection_on_frame, test_detection_multiple_frames, quick_test
+from .test_tracking import test_tracking_on_video, quick_tracking_test, verify_matching
 
 __all__ = [
     # Main classes
@@ -42,8 +43,12 @@ __all__ = [
     "VideoReader",
     "VideoWriter",
     "Visualizer",
-    # Testing
+    # Testing - Detection
     "test_detection_on_frame",
     "test_detection_multiple_frames",
     "quick_test",
+    # Testing - Tracking
+    "test_tracking_on_video",
+    "quick_tracking_test",
+    "verify_matching",
 ]

@@ -90,20 +90,20 @@ def expand_box(tlbr, e):
     Returns:
         Expanded box in [x1, y1, x2, y2] format
     """
-    t, l, b, r = tlbr[1], tlbr[0], tlbr[3], tlbr[2]
-    w = r - l
-    h = b - t
+    x1, y1, x2, y2 = tlbr
+    w = x2 - x1
+    h = y2 - y1
     expand_w = 2 * w * e + w
     expand_h = 2 * h * e + h
 
     new_tlbr = [
-        l - expand_w // 2,
-        t - expand_h // 2,
-        r + expand_w // 2,
-        b + expand_h // 2
+        x1 - expand_w / 2,
+        y1 - expand_h / 2,
+        x2 + expand_w / 2,
+        y2 + expand_h / 2
     ]
 
-    return [new_tlbr[1], new_tlbr[0], new_tlbr[3], new_tlbr[2]]
+    return new_tlbr
 
 
 def eious(atlbrs, btlbrs, e):

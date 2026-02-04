@@ -155,12 +155,19 @@ class DeepGTAPipeline:
                 # IMPORTANT: We must copy the data, not store references!
                 frame_tracks[frame_id] = []
                 for track in tracks:
+                    # Use last_tlwh (actual detection) instead of tlwh (Kalman predicted)
+                    # This ensures we render the actual detection position, not prediction
+                    if hasattr(track, 'last_tlwh') and track.last_tlwh is not None:
+                        bbox = track.last_tlwh.copy()
+                    else:
+                        bbox = track.tlwh.copy()
+
                     # Create a snapshot dictionary with current state
                     snapshot = {
                         'track_id': track.track_id,
                         'frame_id': frame_id,  # Use current frame_id, not track.frame_id
                         'score': track.score,
-                        'tlwh': track.tlwh.copy(),  # Copy the array!
+                        'tlwh': bbox,
                         'class_id': getattr(track, 'class_id', 0),
                         'smooth_feat': track.smooth_feat.copy() if track.smooth_feat is not None else None
                     }
