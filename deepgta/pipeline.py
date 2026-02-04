@@ -133,7 +133,13 @@ class DeepGTAPipeline:
 
             for frame_id, frame in iterator:
                 # Detection
+                if self.config.verbose and frame_id <= 3:
+                    print(f"\nFrame {frame_id}:")
+
                 detections = self.detector.detect(frame)
+
+                if self.config.verbose and frame_id <= 3:
+                    print(f"  Filtered detections: {len(detections)}")
 
                 # Extract ReID features
                 if self.reid_extractor is not None and detections:
@@ -144,12 +150,16 @@ class DeepGTAPipeline:
                 # Update tracker
                 tracks = self.tracker.update(detections, embeddings)
 
-                # Store results
-                frame_tracks[frame_id] = tracks
-                all_tracks.extend(tracks)
+                # Store results - make a copy of track state
+                frame_tracks[frame_id] = list(tracks)
+                for track in tracks:
+                    # Store a snapshot of the track state
+                    all_tracks.append(track)
 
-                if self.config.verbose and frame_id % 100 == 0:
-                    print(f"Frame {frame_id}: {len(tracks)} active tracks")
+                if self.config.verbose and frame_id <= 3:
+                    print(f"  Active tracks: {len(tracks)}")
+                elif self.config.verbose and frame_id % 100 == 0:
+                    print(f"Frame {frame_id}: {len(detections)} detections, {len(tracks)} active tracks")
 
         return all_tracks, frame_tracks
 

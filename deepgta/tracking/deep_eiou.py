@@ -328,17 +328,18 @@ class DeepEIoUTracker:
         # Convert detections to array format if needed
         if hasattr(detections, '__len__') and len(detections) > 0:
             if hasattr(detections[0], 'bbox'):
-                # Detection objects
+                # Detection objects - convert bbox numpy array to list for proper unpacking
                 output_results = np.array([
-                    [*d.bbox, d.confidence] for d in detections
-                ])
+                    [d.bbox[0], d.bbox[1], d.bbox[2], d.bbox[3], d.confidence]
+                    for d in detections
+                ], dtype=np.float32)
                 class_ids = [d.class_id for d in detections]
             else:
                 # Already array format
-                output_results = np.asarray(detections)
+                output_results = np.asarray(detections, dtype=np.float32)
                 class_ids = [0] * len(output_results)
         else:
-            output_results = np.array([])
+            output_results = np.empty((0, 5), dtype=np.float32)
             class_ids = []
 
         if embeddings is not None:

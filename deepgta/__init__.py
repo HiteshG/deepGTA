@@ -19,6 +19,7 @@ from .tracking import DeepEIoUTracker, STrack, BaseTrack, TrackState
 from .refinement import GTALinkRefiner, Tracklet
 from .reid import ReIDExtractor
 from .utils import VideoReader, VideoWriter, Visualizer
+from .test_detection import test_detection_on_frame, test_detection_multiple_frames, quick_test
 
 __all__ = [
     # Main classes
@@ -41,4 +42,8 @@ __all__ = [
     "VideoReader",
     "VideoWriter",
     "Visualizer",
+    # Testing
+    "test_detection_on_frame",
+    "test_detection_multiple_frames",
+    "quick_test",
 ]

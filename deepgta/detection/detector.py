@@ -66,11 +66,12 @@ class YOLODetector:
         self.model = YOLO(config.yolo_weights)
         self.device = config.device
 
-    def detect(self, frame: np.ndarray) -> List[Detection]:
+    def detect(self, frame: np.ndarray, filter_classes: bool = True) -> List[Detection]:
         """Run detection on a single frame.
 
         Args:
             frame: Input image as numpy array (BGR format)
+            filter_classes: Whether to filter by track_classes (default True)
 
         Returns:
             List of Detection objects for tracked classes
@@ -81,8 +82,17 @@ class YOLODetector:
         else:
             detections = self._detect_single_scale(frame)
 
-        # Filter to tracked classes
-        detections = [d for d in detections if d.class_id in self.config.track_classes]
+        if self.config.verbose:
+            print(f"  Raw detections: {len(detections)}")
+            for d in detections[:5]:  # Show first 5
+                print(f"    class={d.class_id} ({d.class_name}), conf={d.confidence:.3f}")
+
+        # Filter to tracked classes (optional)
+        if filter_classes and self.config.track_classes:
+            before_count = len(detections)
+            detections = [d for d in detections if d.class_id in self.config.track_classes]
+            if self.config.verbose:
+                print(f"  After class filter ({self.config.track_classes}): {len(detections)} (was {before_count})")
 
         # Handle special classes (keep max-confidence only)
         detections = self._handle_special_classes(detections)
@@ -133,6 +143,10 @@ class YOLODetector:
 
         for result in results:
             if result.boxes is None:
+                continue
+
+            # Handle empty boxes
+            if len(result.boxes) == 0:
                 continue
 
             boxes = result.boxes.xyxy.cpu().numpy()
