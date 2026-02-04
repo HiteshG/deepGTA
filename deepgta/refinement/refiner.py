@@ -88,10 +88,10 @@ class GTALinkRefiner:
         return merged_tracklets
 
     def _convert_to_tracklets(self, tracks: List) -> Dict[int, Tracklet]:
-        """Convert STrack list to Tracklet dictionary.
+        """Convert track list/snapshots to Tracklet dictionary.
 
         Args:
-            tracks: List of track objects
+            tracks: List of track objects or snapshot dictionaries
 
         Returns:
             Dictionary mapping track_id to Tracklet
@@ -99,7 +99,35 @@ class GTALinkRefiner:
         tracklets = {}
 
         for track in tracks:
-            if hasattr(track, 'track_id'):
+            # Handle dictionary snapshots (new format)
+            if isinstance(track, dict):
+                tid = track['track_id']
+                frame_id = track.get('frame_id', 0)
+                score = track.get('score', 1.0)
+                tlwh = track.get('tlwh', [0, 0, 0, 0])
+                class_id = track.get('class_id', 0)
+                smooth_feat = track.get('smooth_feat')
+
+                bbox = list(tlwh)
+
+                if tid not in tracklets:
+                    tracklets[tid] = Tracklet(
+                        track_id=tid,
+                        frames=frame_id,
+                        scores=score,
+                        bboxes=bbox,
+                        class_id=class_id
+                    )
+                else:
+                    tracklets[tid].append_det(frame_id, score, bbox)
+
+                # Add feature if available
+                if smooth_feat is not None:
+                    feat_copy = smooth_feat.copy() if hasattr(smooth_feat, 'copy') else smooth_feat
+                    tracklets[tid].append_feat(feat_copy)
+
+            # Handle STrack objects (legacy format)
+            elif hasattr(track, 'track_id'):
                 tid = track.track_id
                 frame_id = track.frame_id if hasattr(track, 'frame_id') else 0
                 score = track.score if hasattr(track, 'score') else 1.0
@@ -124,6 +152,9 @@ class GTALinkRefiner:
                     tracklets[tid].append_feat(track.smooth_feat.copy())
                 elif hasattr(track, 'curr_feat') and track.curr_feat is not None:
                     tracklets[tid].append_feat(track.curr_feat.copy())
+
+        if self.verbose:
+            print(f"Converted {len(tracks)} snapshots to {len(tracklets)} tracklets")
 
         return tracklets
 

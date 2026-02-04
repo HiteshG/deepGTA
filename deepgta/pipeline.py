@@ -120,9 +120,10 @@ class DeepGTAPipeline:
             show_progress: Show progress bar
 
         Returns:
-            Tuple of (all_tracks, frame_tracks_dict)
+            Tuple of (all_track_snapshots, frame_tracks_dict)
         """
-        all_tracks = []
+        # Store snapshots of track state (not references to mutable objects!)
+        all_track_snapshots = []
         frame_tracks = {}
 
         with VideoReader(video_path) as reader:
@@ -150,36 +151,60 @@ class DeepGTAPipeline:
                 # Update tracker
                 tracks = self.tracker.update(detections, embeddings)
 
-                # Store results - make a copy of track state
-                frame_tracks[frame_id] = list(tracks)
+                # Store snapshots of track state at this frame
+                # IMPORTANT: We must copy the data, not store references!
+                frame_tracks[frame_id] = []
                 for track in tracks:
-                    # Store a snapshot of the track state
-                    all_tracks.append(track)
+                    # Create a snapshot dictionary with current state
+                    snapshot = {
+                        'track_id': track.track_id,
+                        'frame_id': frame_id,  # Use current frame_id, not track.frame_id
+                        'score': track.score,
+                        'tlwh': track.tlwh.copy(),  # Copy the array!
+                        'class_id': getattr(track, 'class_id', 0),
+                        'smooth_feat': track.smooth_feat.copy() if track.smooth_feat is not None else None
+                    }
+                    all_track_snapshots.append(snapshot)
+                    frame_tracks[frame_id].append(snapshot)
 
                 if self.config.verbose and frame_id <= 3:
                     print(f"  Active tracks: {len(tracks)}")
                 elif self.config.verbose and frame_id % 100 == 0:
                     print(f"Frame {frame_id}: {len(detections)} detections, {len(tracks)} active tracks")
 
-        return all_tracks, frame_tracks
+        if self.config.verbose:
+            print(f"\nTotal track snapshots collected: {len(all_track_snapshots)}")
 
-    def _tracks_to_tracklets(self, tracks: List) -> Dict[int, Tracklet]:
-        """Convert track list to tracklet dictionary.
+        return all_track_snapshots, frame_tracks
+
+    def _tracks_to_tracklets(self, track_snapshots: List) -> Dict[int, Tracklet]:
+        """Convert track snapshots to tracklet dictionary.
 
         Args:
-            tracks: List of STrack objects
+            track_snapshots: List of track snapshot dictionaries
 
         Returns:
             Dictionary mapping track_id to Tracklet
         """
         tracklets = {}
 
-        for track in tracks:
-            tid = track.track_id
-            frame_id = track.frame_id
-            score = track.score
-            tlwh = track.tlwh
-            class_id = getattr(track, 'class_id', 0)
+        for snapshot in track_snapshots:
+            # Handle both dict snapshots and STrack objects for compatibility
+            if isinstance(snapshot, dict):
+                tid = snapshot['track_id']
+                frame_id = snapshot['frame_id']
+                score = snapshot['score']
+                tlwh = snapshot['tlwh']
+                class_id = snapshot.get('class_id', 0)
+                smooth_feat = snapshot.get('smooth_feat')
+            else:
+                # Legacy STrack object support
+                tid = snapshot.track_id
+                frame_id = snapshot.frame_id
+                score = snapshot.score
+                tlwh = snapshot.tlwh
+                class_id = getattr(snapshot, 'class_id', 0)
+                smooth_feat = getattr(snapshot, 'smooth_feat', None)
 
             if tid not in tracklets:
                 tracklets[tid] = Tracklet(
@@ -193,8 +218,8 @@ class DeepGTAPipeline:
                 tracklets[tid].append_det(frame_id, score, list(tlwh))
 
             # Add features if available
-            if hasattr(track, 'smooth_feat') and track.smooth_feat is not None:
-                tracklets[tid].append_feat(track.smooth_feat.copy())
+            if smooth_feat is not None:
+                tracklets[tid].append_feat(smooth_feat.copy() if hasattr(smooth_feat, 'copy') else smooth_feat)
 
         return tracklets
 
@@ -215,16 +240,39 @@ class DeepGTAPipeline:
         """
         # Build frame-to-tracks lookup
         frame_results = {}
+        total_entries = 0
+
         for tid, tracklet in tracklets.items():
+            if self.config.verbose:
+                print(f"Tracklet {tid}: {len(tracklet.times)} frames, "
+                      f"range [{min(tracklet.times) if tracklet.times else 0}-{max(tracklet.times) if tracklet.times else 0}]")
+
             for i, frame_id in enumerate(tracklet.times):
+                # Ensure frame_id is an integer
+                frame_id = int(frame_id)
+
                 if frame_id not in frame_results:
                     frame_results[frame_id] = []
+
+                # Ensure bbox is a list
+                bbox = tracklet.bboxes[i]
+                if hasattr(bbox, 'tolist'):
+                    bbox = bbox.tolist()
+
                 frame_results[frame_id].append({
                     'track_id': tid,
-                    'bbox': tracklet.bboxes[i],
+                    'bbox': bbox,
                     'score': tracklet.scores[i] if i < len(tracklet.scores) else 1.0,
                     'class_id': tracklet.class_id
                 })
+                total_entries += 1
+
+        if self.config.verbose:
+            print(f"\nTotal tracklets: {len(tracklets)}")
+            print(f"Total frame entries: {total_entries}")
+            print(f"Frames with tracks: {len(frame_results)}")
+            if frame_results:
+                print(f"Frame range: {min(frame_results.keys())} - {max(frame_results.keys())}")
 
         with VideoReader(video_path) as reader:
             with VideoWriter.from_reader(reader, output_path, self.config.output_codec) as writer:
@@ -348,6 +396,70 @@ class DeepGTAPipeline:
     def reset(self):
         """Reset the pipeline state."""
         self.tracker.reset()
+
+    def process_video_debug(
+        self,
+        video_path: str,
+        output_path: str,
+        skip_refinement: bool = True
+    ) -> Tuple[str, Dict[int, Tracklet]]:
+        """Process video with debug options.
+
+        Args:
+            video_path: Path to input video
+            output_path: Path for output video
+            skip_refinement: If True, skip GTA-Link refinement
+
+        Returns:
+            Tuple of (output_video_path, tracklets_dict)
+        """
+        # Force verbose mode
+        original_verbose = self.config.verbose
+        self.config.verbose = True
+
+        # Run online tracking
+        all_track_snapshots, frame_tracks = self._online_tracking(video_path, show_progress=True)
+
+        print(f"\n{'='*50}")
+        print("DEBUG: Online tracking results")
+        print('='*50)
+        print(f"Total snapshots: {len(all_track_snapshots)}")
+        print(f"Frames with tracks: {len(frame_tracks)}")
+
+        # Sample some frames
+        sample_frames = sorted(frame_tracks.keys())[:5]
+        for fid in sample_frames:
+            tracks = frame_tracks[fid]
+            print(f"  Frame {fid}: {len(tracks)} tracks")
+
+        # Convert to tracklets
+        if skip_refinement:
+            print("\nSkipping GTA-Link refinement (debug mode)")
+            tracklets = self._tracks_to_tracklets(all_track_snapshots)
+        else:
+            print("\nRunning GTA-Link refinement")
+            tracklets = self.refiner.refine(all_track_snapshots)
+
+        print(f"\n{'='*50}")
+        print("DEBUG: Tracklet results")
+        print('='*50)
+        print(f"Total tracklets: {len(tracklets)}")
+
+        for tid, t in list(tracklets.items())[:5]:
+            print(f"  Tracklet {tid}: frames={len(t.times)}, "
+                  f"bboxes={len(t.bboxes)}, "
+                  f"range=[{min(t.times) if t.times else 0}-{max(t.times) if t.times else 0}]")
+
+        # Render
+        print(f"\n{'='*50}")
+        print("DEBUG: Rendering")
+        print('='*50)
+        self._render_video(video_path, output_path, tracklets, show_progress=True)
+
+        # Restore verbose setting
+        self.config.verbose = original_verbose
+
+        return output_path, tracklets
 
 
 # Import cv2 at module level for _draw_frame_tracks
